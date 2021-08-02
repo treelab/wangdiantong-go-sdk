@@ -1,3 +1,4 @@
+// Package wangdiantong provides methods for calling Wangdiantong API
 package wangdiantong
 
 import (
@@ -13,6 +14,9 @@ import (
 	"time"
 )
 
+// Options are provided by Wangdiantong
+// see https://open.wangdian.cn/qyb/open/abut
+// Must provide AppKey, AppSecret, SID and BaseURL
 type Options struct {
 	AppKey     string
 	AppSecret  string
@@ -57,6 +61,8 @@ type client struct {
 	httpClient *http.Client
 }
 
+// New creates a wangdiantong client and returns a pointer
+// if required options are not provided, it will return an error
 func New(opt *Options) (*client, error) {
 	if err := opt.init(); err != nil {
 		return nil, err
@@ -71,6 +77,7 @@ func New(opt *Options) (*client, error) {
 	}, nil
 }
 
+// Execute invokes a HTTP POST request to Wangdiantong API
 func (c *client) Execute(relativeURL string, params map[string]string) (*http.Response, error) {
 	params["appkey"] = c.appKey
 	params["sid"] = c.sid
