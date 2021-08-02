@@ -1,46 +1,93 @@
+// Package wangdiantong provides methods for calling Wangdiantong API
 package wangdiantong
 
 import (
 	"bytes"
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"sort"
+	"strings"
 	"time"
 )
 
-type client struct {
-	AppKey    string
-	AppSecret string
-	SID       string
-	BaseURL   string
+// Options are provided by Wangdiantong
+// see https://open.wangdian.cn/qyb/open/abut
+// Must provide AppKey, AppSecret, SID and BaseURL
+type Options struct {
+	AppKey     string
+	AppSecret  string
+	SID        string
+	BaseURL    string
+	HttpClient *http.Client
 }
 
-func New(
-	appKey string,
-	appSecret string,
-	SID string,
-	baseURL string,
-) *client {
-	return &client{
-		AppKey:    appKey,
-		AppSecret: appSecret,
-		SID:       SID,
-		BaseURL:   baseURL,
+func (opt *Options) init() error {
+	if opt == nil {
+		return errors.New("wangdiantong: opt cannot be nil")
 	}
+
+	if opt.AppKey == "" {
+		return fmt.Errorf("wangdiantong: invalid AppKey: %q", opt.AppKey)
+	}
+
+	if opt.AppSecret == "" {
+		return fmt.Errorf("wangdiantong: invalid AppSecret: %q", opt.AppKey)
+	}
+
+	if opt.SID == "" {
+		return fmt.Errorf("wangdiantong: invalid SID: %q", opt.AppKey)
+	}
+
+	if opt.BaseURL == "" {
+		return fmt.Errorf("wangdiantong: invalid BaseUrl: %q", opt.AppKey)
+	}
+
+	if opt.HttpClient == nil {
+		opt.HttpClient = &http.Client{}
+	}
+
+	return nil
 }
 
-func (c *client) Execute(relativeURL string, params map[string]string) string {
-	params["appkey"] = c.AppKey
-	params["sid"] = c.SID
-	params["timestamp"] = fmt.Sprint(time.Now().UnixNano() / int64(time.Millisecond))
-	params["sign"] = c.signRequest(params)
-
-	// TODO: make HTTP Post request
-	return ""
+type client struct {
+	appKey     string
+	appSecret  string
+	sid        string
+	baseURL    string
+	httpClient *http.Client
 }
 
-func (c *client) signRequest(params map[string]string) string {
+// New creates a wangdiantong client and returns a pointer
+// if required options are not provided, it will return an error
+func New(opt *Options) (*client, error) {
+	if err := opt.init(); err != nil {
+		return nil, err
+	}
+
+	return &client{
+		appKey:     opt.AppKey,
+		appSecret:  opt.AppSecret,
+		sid:        opt.SID,
+		baseURL:    opt.BaseURL,
+		httpClient: opt.HttpClient,
+	}, nil
+}
+
+// Execute invokes a HTTP POST request to Wangdiantong API
+func (c *client) Execute(relativeURL string, params map[string]string) (*http.Response, error) {
+	params["appkey"] = c.appKey
+	params["sid"] = c.sid
+	params["timestamp"] = fmt.Sprint(time.Now().Unix())
+	params["sign"] = signRequest(params, c.appKey)
+
+	return c.post(c.baseURL+relativeURL, params)
+}
+
+func signRequest(params map[string]string, appSecret string) string {
 	// 第一步：对所有请求参数按照键名进行正序排序
 	keys := make([]string, 0, len(params))
 	for k := range params {
@@ -66,8 +113,7 @@ func (c *client) signRequest(params map[string]string) string {
 		bf.WriteString(str)
 	}
 
-	bf.WriteString(c.AppSecret)
-	fmt.Println(bf.String())
+	bf.WriteString(appSecret)
 
 	// 第三步：使用MD5哈希
 	hash := md5.Sum(bf.Bytes())
@@ -76,4 +122,39 @@ func (c *client) signRequest(params map[string]string) string {
 	hexStr := hex.EncodeToString(hash[:])
 
 	return hexStr
+}
+
+func (c *client) post(url string, data map[string]string) (*http.Response, error) {
+	encoded := encode(data)
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(encoded))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return c.httpClient.Do(req)
+}
+
+// Encode encodes the values into ``URL encoded'' form
+// ("bar=baz&foo=quux") sorted by key.
+func encode(params map[string]string) string {
+	var buf strings.Builder
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		v := params[k]
+		keyEscaped := url.QueryEscape(k)
+		if buf.Len() > 0 {
+			buf.WriteByte('&')
+		}
+
+		buf.WriteString(keyEscaped)
+		buf.WriteByte('=')
+		buf.WriteString(url.QueryEscape(v))
+	}
+
+	return buf.String()
 }
