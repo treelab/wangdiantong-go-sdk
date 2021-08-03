@@ -82,7 +82,7 @@ func (c *client) Execute(relativeURL string, params map[string]string) (*http.Re
 	params["appkey"] = c.appKey
 	params["sid"] = c.sid
 	params["timestamp"] = fmt.Sprint(time.Now().Unix())
-	params["sign"] = signRequest(params, c.appKey)
+	params["sign"] = signRequest(params, c.appSecret)
 
 	return c.post(c.baseURL+relativeURL, params)
 }
